@@ -9,7 +9,7 @@ const router = useRouter();
 const history = ref([]);
 onMounted(() => {
   listConversation('123').then(res => {
-    history.value = res.data.data;
+    history.value = res.data.data.reverse();
   })
 })
 
@@ -48,5 +48,7 @@ function goToHistory(convertId) {
 }
 .content {
   flex: 1;
+  border: 1px solid grey;
+  border-left: none;
 }
 </style>
