@@ -1,8 +1,14 @@
 import { VectorDB } from "ruvector"
+import path from "path"
+import { fileURLToPath } from "url"
+
+// ESM 下 __dirname 不再自动注入,需手动构造
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 const db = new VectorDB({
   dimension: 1024,
-  path: "./data/vectorData.db", // 数据按文件存储到这，没有则是内存存储
+  path: path.resolve(__dirname, "./data/vectorData.db"), // 数据按文件存储到这，没有则是内存存储
   metric: "Cosine", // 查找算法 Cosine、Euclidean、DotProduct
 })
 
@@ -31,7 +37,7 @@ export async function search(searchVector) {
     return {
       id: item.id,
       score: item.score,
-      text: item.metadata,
+      metadata: item.metadata,
     }
   })
 }

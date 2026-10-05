@@ -8,15 +8,14 @@ export async function createVector(text) {
     apiKey: process.env.OPENAI_API_KEY,
   })
   const response = await openai.embeddings.create({
-    model: process.env.EMBEDDING_MODEL,
+    model: process.env.OPENAI_EMBEDDING_MODEL,
     input: text,
-    dimensions: 2048
   })
   return response.data[0].embedding
 }
 
 export async function storeIn(text) {
-  const vector = createVector(text)
+  const vector = await createVector(text)
   await add(text, vector, text)
 }
 

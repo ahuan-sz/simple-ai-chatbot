@@ -1,7 +1,10 @@
 import fs from "fs"
+import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters"
+
 const systemContext = fs.readFileSync("./context2.md", "utf-8")
 const systemString = systemContext.toString()
 import { toolHandleMap, toolList, frontList } from "./tools.js";
+import { textSearch } from "./vector/index.js";
 
 export async function summaryMessage(openai, messageList) {
   const llmres = await openai.chat.completions.create({
@@ -64,6 +67,7 @@ export async function requestAI(opt) {
   }
   // 每次回答，存到singleConvertList，保存上下文
   singleConvertList.push(queryObj)
+  const ragContext = await createRAGContext(queryObj.content)
 
   const llmres = await openai.chat.completions.create({
     model: process.env.OPENAI_MODEL,
@@ -71,6 +75,10 @@ export async function requestAI(opt) {
       {
         role: "system",
         content: systemString
+      },
+      {
+        role: "system",
+        content: ragContext
       },
       ...singleConvertList
     ],
@@ -174,4 +182,45 @@ export async function requestAI(opt) {
     res.write(`data: ${JSON.stringify({ done: true })} \n\n`) 
     res.end()
   }
+}
+
+export function readFileToText(filePath) {
+  const result = fs.readFileSync(filePath, 'utf-8')
+  return result.toString()
+}
+
+export async function readDocToText() {
+  const dirInfo = fs.readdirSync('./doc')
+  const docArr = []
+  for (let i = 0; i < dirInfo.length; i++) {
+    const filePath = './doc/' + dirInfo[i]
+    const text = readFileToText(filePath)
+    docArr.push(text)
+  }
+  return docArr
+}
+
+export async function splitDoc(docText) {
+  const textSplitter = new RecursiveCharacterTextSplitter({
+    chunkSize: 50, // 每个chunk的字符数，真实业务建议100-500
+    chunkOverlap: 20, // 允许重叠字符数，有利于增加语义上下文完整性
+    separators: ['\n\n', '\n', '.', '。', ',', '，', ' ', '但是'],
+  })
+  const chunks = await textSplitter.splitText(docText)
+  return chunks
+}
+
+export async function searchByQuestion(qtext) {
+  return await textSearch(qtext)
+}
+
+export async function createRAGContext(qtext) {
+  const ragContext = fs.readFileSync('./ragContext.md')
+  const searchArr = await searchByQuestion(qtext)
+  const searchText = searchArr.map((item) => {
+    return item.metadata.text
+  }).join('\n')
+  let ragString =  ragContext.toString()
+  ragString = ragString.replace('${text}', searchText)
+  return ragString
 }
