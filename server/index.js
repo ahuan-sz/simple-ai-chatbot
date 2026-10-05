@@ -1,7 +1,7 @@
 import express from "express"
 import { OpenAI } from "openai"
 import cors from "cors"
-import { readConversation, writeConversation, summaryTitle, requestAI } from "./utils.js"
+import { readConversation, writeConversation, summaryTitle, requestAI } from "./utils/utils.js"
 import "dotenv/config"
 
 const app = express()

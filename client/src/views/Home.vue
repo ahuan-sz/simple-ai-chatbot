@@ -77,18 +77,18 @@ watch(route, () => {
   <div class="chat-wrapper">
     <div class="chat-content">
       <div v-for="(chatItem, index) in convertList" :key="index" class="chat-item">
-        <template v-if="chatItem.content !==''">
+        <div v-if="chatItem.content !==''" class="chat-item__wrap">
           <div v-if="chatItem.role === 'user'" class="user-content">
             <MarkDown :content="chatItem.content" />
           </div>
           <div v-if="chatItem.role === 'assistant'" class="assistant-content">
             <MarkDown :content="chatItem.content" />
           </div>
-          <div v-if="chatItem.role === 'tool' && chatItem.cardName !== ''" class="assistant-content">
-            aaaa
+          <div v-if="chatItem.role === 'tool' && chatItem.cardName" class="assistant-content">
+            333
             <WmCard v-if="chatItem.cardName === 'wm_card'" :kind="chatItem.arguments.kind" :cardData="chatItem.arguments.data" @cardConfirm="sendToLLM" />
           </div>
-        </template>
+        </div>
       </div>
       <div v-if="isThinking" class="chat-item">
         <div class="assistant-content">思考中...</div>
@@ -125,9 +125,11 @@ watch(route, () => {
 }
 .chat-item {
   width: 100%;
-  margin-bottom: 20px;
-  display: flex;
   box-sizing: border-box;
+}
+.chat-item__wrap {
+  display: flex;
+  margin-bottom: 20px;
   padding: 10px;
 }
 .user-content {

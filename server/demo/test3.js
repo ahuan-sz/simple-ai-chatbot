@@ -1,5 +1,5 @@
-import { readDocToText, splitDoc, searchByQuestion, createRAGContext } from './utils.js'
-import { storeIn } from './vector/index.js'
+import { readDocToText, splitDoc, searchByQuestion, createRAGContext } from '../utils/utils.js'
+import { storeIn } from '../vector/index.js'
 
 // const docArr = await readDocToText()
 // for (const docText of docArr) {

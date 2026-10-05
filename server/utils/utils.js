@@ -1,10 +1,16 @@
 import fs from "fs"
+import path from "path"
+import { fileURLToPath } from "url"
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters"
 
-const systemContext = fs.readFileSync("./context2.md", "utf-8")
+// ESM 下 __dirname 不再自动注入,需手动构造
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
+const systemContext = fs.readFileSync(path.resolve(__dirname, "../context/context2.md"), "utf-8")
 const systemString = systemContext.toString()
 import { toolHandleMap, toolList, frontList } from "./tools.js";
-import { textSearch } from "./vector/index.js";
+import { textSearch } from "../vector/index.js";
 
 export async function summaryMessage(openai, messageList) {
   const llmres = await openai.chat.completions.create({
@@ -42,13 +48,13 @@ export function deleteConversation(userId, convertId) {
 }
 
 export function readConversation() {
-  const conversation = fs.readFileSync('./conversation.json', 'utf8');
+  const conversation = fs.readFileSync(path.resolve(__dirname, '../dbdata/conversation.json'), 'utf8');
   return JSON.parse(conversation);
 }
 
 export function writeConversation(obj) {
   const jsonStr = JSON.stringify(obj);
-  fs.writeFileSync('./conversation.json', jsonStr);
+  fs.writeFileSync(path.resolve(__dirname, '../dbdata/conversation.json'), jsonStr);
 }
 
 export async function requestAI(opt) {
@@ -190,10 +196,11 @@ export function readFileToText(filePath) {
 }
 
 export async function readDocToText() {
-  const dirInfo = fs.readdirSync('./doc')
+  const docDir = path.resolve(__dirname, '../doc')
+  const dirInfo = fs.readdirSync(docDir)
   const docArr = []
   for (let i = 0; i < dirInfo.length; i++) {
-    const filePath = './doc/' + dirInfo[i]
+    const filePath = path.resolve(docDir, dirInfo[i])
     const text = readFileToText(filePath)
     docArr.push(text)
   }
@@ -215,7 +222,7 @@ export async function searchByQuestion(qtext) {
 }
 
 export async function createRAGContext(qtext) {
-  const ragContext = fs.readFileSync('./ragContext.md')
+  const ragContext = fs.readFileSync(path.resolve(__dirname, '../context/ragContext.md'))
   const searchArr = await searchByQuestion(qtext)
   const searchText = searchArr.map((item) => {
     return item.metadata.text

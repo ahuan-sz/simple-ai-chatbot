@@ -1,7 +1,7 @@
 import OpenAI from 'openai'
 // import fs from 'fs'
 import "dotenv/config"
-import { add, get, search } from "./vector/store.js"
+import { add, get, search } from "../vector/store.js"
 
 const openai = new OpenAI({
   baseURL: process.env.OPENAI_BASE_URL,
