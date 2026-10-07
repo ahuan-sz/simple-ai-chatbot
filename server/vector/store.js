@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename)
 
 const db = new VectorDB({
   dimension: 1024,
-  path: path.resolve(__dirname, "./data/vectorData.db"), // 数据按文件存储到这，没有则是内存存储
+  path: path.resolve(__dirname, "../data/vectorData.db"), // 数据按文件存储到这，没有则是内存存储
   metric: "Cosine", // 查找算法 Cosine、Euclidean、DotProduct
 })
 

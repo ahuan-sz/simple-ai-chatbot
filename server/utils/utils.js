@@ -74,7 +74,7 @@ export async function requestAI(opt) {
   // 每次回答，存到singleConvertList，保存上下文
   singleConvertList.push(queryObj)
   const ragContext = await createRAGContext(queryObj.content)
-
+  const userMemo = await getUserMemoById(userId)
   const llmres = await openai.chat.completions.create({
     model: process.env.OPENAI_MODEL,
     messages: [
@@ -85,6 +85,10 @@ export async function requestAI(opt) {
       {
         role: "system",
         content: ragContext
+      },
+      {
+        role: "system",
+        content: userMemo || ""
       },
       ...singleConvertList
     ],
@@ -137,6 +141,22 @@ export async function requestAI(opt) {
         }
       }
       res.write(`data: ${JSON.stringify(resObj)} \n\n`)
+    }
+  }
+
+  // 入口清洗:过滤掉模型返回的非标准字段,保证存储的消息符合 OpenAI 规范
+  // - reasoning_content:思维链字段,非 OpenAI 标准,API 不认
+  // - tool_calls[].index:流式 chunk 拼接时的索引,非标准
+  // - id(chatcmpl-xxx):chat completion 的 id,不属于 message 对象
+  if (resObj.reasoning_content !== undefined) {
+    delete resObj.reasoning_content
+  }
+  if (resObj.id !== undefined) {
+    delete resObj.id
+  }
+  if (Array.isArray(resObj.tool_calls)) {
+    for (const tc of resObj.tool_calls) {
+      if (tc.index !== undefined) delete tc.index
     }
   }
 
@@ -230,4 +250,10 @@ export async function createRAGContext(qtext) {
   let ragString =  ragContext.toString()
   ragString = ragString.replace('${text}', searchText)
   return ragString
+}
+
+export async function  getUserMemoById(id) {
+  const memoJsonStr = fs.readFileSync(path.resolve(__dirname, "./dbdata/userMemo.json"))
+  const memoJsonObj = JSON.parse(memoJsonStr)
+  return memoJsonObj[id]
 }

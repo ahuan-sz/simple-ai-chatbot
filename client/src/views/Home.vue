@@ -85,7 +85,6 @@ watch(route, () => {
             <MarkDown :content="chatItem.content" />
           </div>
           <div v-if="chatItem.role === 'tool' && chatItem.cardName" class="assistant-content">
-            333
             <WmCard v-if="chatItem.cardName === 'wm_card'" :kind="chatItem.arguments.kind" :cardData="chatItem.arguments.data" @cardConfirm="sendToLLM" />
           </div>
         </div>
