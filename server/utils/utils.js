@@ -253,7 +253,8 @@ export async function createRAGContext(qtext) {
 }
 
 export async function  getUserMemoById(id) {
-  const memoJsonStr = fs.readFileSync(path.resolve(__dirname, "./dbdata/userMemo.json"))
+  // 基于进程工作目录定位,避免 __dirname 在不同子目录下的层级问题
+  const memoJsonStr = fs.readFileSync(path.resolve(process.cwd(), "./dbdata/userMemo.json"))
   const memoJsonObj = JSON.parse(memoJsonStr)
   return memoJsonObj[id]
 }
