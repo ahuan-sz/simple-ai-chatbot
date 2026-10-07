@@ -13,12 +13,13 @@ export async function getUserLiker(conversationArr) {
     baseURL: process.env.OPENAI_BASE_URL,
     apiKey: process.env.OPENAI_API_KEY,
   })
+  const memoContext = fs.readFileSync("./context/memoContext.md")
   const llmres = await openai.chat.completions.create({
     model: process.env.OPENAI_MODEL,
     messages: [
       {
         role: "system",
-        content: "分析下面的链条记录，找出用户的额喜好和状态，以及身份，以第一视角返回"
+        content: memoContext.toString()
       },
       {
         role: "user",
@@ -50,4 +51,17 @@ export async function getUserMemory(userId) {
   fs.writeFileSync(path.resolve(__dirname, "./dbdata/userMemo.json"), JSON.stringify(memoJsonObj))
 }
 
-getUserMemory("123")
+export async function createSf(params) {
+
+}
+
+export async function createLike(params) {
+
+}
+
+export async function createStatus(params) {
+  
+}
+
+
+// getUserMemory("123")
