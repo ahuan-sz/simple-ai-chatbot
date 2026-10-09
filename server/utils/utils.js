@@ -2,6 +2,9 @@ import fs from "fs"
 import path from "path"
 import { fileURLToPath } from "url"
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters"
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { mcpList } from "../config.js"
 
 // ESM 下 __dirname 不再自动注入,需手动构造
 const __filename = fileURLToPath(import.meta.url)
@@ -32,7 +35,7 @@ export async function summaryTitle(openai, messageList) {
     messages: [
       {
         role: "system",
-        content: "帮我总结下面的对话记录，生成一个小于16个字符的标题"
+        content: "帮我总结下面的对话记录，生成一个小于16个字符的标题，一定要注意文字长度限制，不能超过16个字符"
       },
       ...messageList
     ],
@@ -58,7 +61,7 @@ export function writeConversation(obj) {
 }
 
 export async function requestAI(opt) {
-  const { openai, queryObj, userId, convertId, res } = opt
+  const { openai, queryObj, userId, convertId, res, mcpResult } = opt
   const conversationObj = readConversation()
   const singleConvertList = conversationObj[userId][convertId].list
   if (singleConvertList.length > 10) {
@@ -93,7 +96,10 @@ export async function requestAI(opt) {
       ...singleConvertList
     ],
     // OpenAI SDK 规定字段名为 tools,不是 toolList
-    tools: toolList,
+    tools: [
+      ...mcpResult.toolList || [],
+      ...toolList,
+    ],
     stream: true
   })
 
@@ -165,42 +171,55 @@ export async function requestAI(opt) {
 
   if (resObj.tool_calls && resObj.tool_calls.length > 0) {
     const tool_calls = resObj.tool_calls
+    const toolQueryObj = {
+      role: "tool",
+      content: "",
+      id: "",
+    }
     for (let toolIndex = 0; toolIndex < tool_calls.length; toolIndex++) {
       const singleTool = tool_calls[toolIndex]
       // OpenAI tool_calls 结构:name/arguments 在 singleTool.function 下
       const name = singleTool.function.name
       // 避免占用保留字 arguments
-      const args = JSON.parse(singleTool.function.arguments || '{}')
+      const toolarguments = JSON.parse(singleTool.function.arguments || '{}')
+      toolQueryObj.id = singleTool.id
       if (frontList.includes(name)) {
         // 按前端工具逻辑处理，不给ai回复，直接给前端下发消息
-        const result = await toolHandleMap[name](args)
-        const obj = {
-          id: singleTool.id,
-          role: "tool",
-          content: "此消息无意义，纯粹让前端展示UI卡片",
-          cardName: name,
-          arguments: {
-            ...args,
-            data: result,
-          },
+        const result = await toolHandleMap[name](toolarguments)
+        toolQueryObj.content = "此消息无意义，纯粹让前端展示UI卡片"
+        toolQueryObj.cardName = name
+        toolQueryObj.arguments = {
+          ...toolarguments,
+          data: result,
         }
-        singleConvertList.push(obj)
+        singleConvertList.push(toolQueryObj)
         writeConversation(conversationObj)
-        res.write(`data: ${JSON.stringify(obj)} \n\n`)
+        res.write(`data: ${JSON.stringify(toolQueryObj)} \n\n`)
         res.end()
       } else {
-        const result = await toolHandleMap[name](args)
-        const toolQueryObj = {
-          role: "tool",
-          content: result,
-          id: singleTool.id,
+        let result = {}
+        if (mcpResult.toolMap[name]) {
+          // 第三方的mcp工具调用
+          // 注意:client.callTool 返回 Promise,必须 await,否则 result 是 Promise
+          // 后续 result.content 为 undefined,会导致发给 LLM 的 tool 消息缺 content 字段
+          const servername = mcpResult.toolMap[name]
+          const client = mcpResult.clientMap[servername].client
+          result = await client.callTool({
+            name: name,
+            arguments: toolarguments
+          })
+        } else {
+          result = await toolHandleMap[name](toolarguments)
         }
+        // 兜底:确保 content 始终是字符串,避免下游 LLM 报 "Field required: input.contents"
+        toolQueryObj.content = JSON.stringify(result.content ?? "")
         await requestAI({
           openai,
           queryObj: toolQueryObj,
           userId,
           convertId,
           res,
+          mcpResult,
         })
       }
     }
@@ -252,9 +271,88 @@ export async function createRAGContext(qtext) {
   return ragString
 }
 
-export async function  getUserMemoById(id) {
-  // 基于进程工作目录定位,避免 __dirname 在不同子目录下的层级问题
-  const memoJsonStr = fs.readFileSync(path.resolve(process.cwd(), "./dbdata/userMemo.json"))
-  const memoJsonObj = JSON.parse(memoJsonStr)
-  return memoJsonObj[id]
+export async function getUserMemoById(id) {
+    const memoJsonStr = fs.readFileSync("./dbdata/userMemo.json")
+    const jsonObj = JSON.parse(memoJsonStr)
+    const useMemo = jsonObj[id];
+    //做一个自定义转化，转化为字符串在给ai大模型
+    let str = "以下是用户的一些特点，请牢记，回答的时候根据用户特点进行回答\n";
+    const { sf, like, status } = useMemo
+    if (sf) {
+        //身份相关的特点写死逻辑，拼到str
+        if (sf.career) {
+            str += "我的职业是" + sf.career + "\n"
+        }
+        if (sf.location) {
+            str += "我的居住地是" + sf.location + "\n"
+        }
+    }
+    if (like) {
+        //身份相关的特点写死逻辑，拼到str
+        if (like.career) {
+            str += "我喜欢的食物有" + like.food.join(",") + "\n"
+        }
+        if (like.sport) {
+            str += "我喜欢的运动是" + like.sport.join(",") + "\n"
+        }
+    }
+    if (status) {
+        //身份相关的特点写死逻辑，拼到str
+        if (status.feel) {
+            str += "我的感情状态：" + status.feel + "\n"
+        }
+        if (status.body) {
+            str += "我的身体状态" + status.body + "\n"
+        }
+    }
+    return str;
 }
+
+export async function linkMcpAndListTool() {
+  const clientMap = {}
+  const toolMap = {}
+  const toolList = []
+  for (let i = 0; i < mcpList.length; i++) {
+    const mcpServer = mcpList[i]
+    const client = new Client({
+      name: "mcp" + i,
+      version: "1.0.0"
+    })
+    const transport = new StreamableHTTPClientTransport(mcpServer.url)
+    await client.connect(transport)
+    // 1. 用服务名字储存client
+    clientMap[mcpServer.name] = {
+      client,
+      transport,
+    }
+    const mcpTools = await client.listTools()
+    const openaiTypeList = transformToOpenAi(mcpTools)
+    openaiTypeList.forEach((tool) => {
+      // 记录每一个工具它对应的服务名字，到时候大模型说要调用哪个工具，用工具名就找到对应的服务
+      toolMap[tool.function.name] = mcpServer.name
+      toolList.push(tool)
+    })
+  }
+
+  return {
+    clientMap,
+    toolMap,
+    toolList,
+  }
+}
+
+export function transformToOpenAi(result) {
+  const tools = result.tools
+  const openTools = tools.map((tool) => {
+    const functionObj = {}
+    functionObj.name = tool.name
+    functionObj.description = tool.description
+    functionObj.parameters = tool.inputSchema
+    return {
+      type: "function",
+      function: functionObj
+    }
+  })
+  return openTools
+}
+

@@ -90,7 +90,9 @@ watch(route, () => {
         </div>
       </div>
       <div v-if="isThinking" class="chat-item">
-        <div class="assistant-content">思考中...</div>
+        <div class="chat-item__wrap">
+          <div class="assistant-content">思考中...</div>
+        </div>
       </div>
     </div>
     <div class="input-content">

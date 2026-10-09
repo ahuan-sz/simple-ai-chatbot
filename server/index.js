@@ -1,12 +1,16 @@
 import express from "express"
 import { OpenAI } from "openai"
 import cors from "cors"
-import { readConversation, writeConversation, summaryTitle, requestAI } from "./utils/utils.js"
 import "dotenv/config"
+import { linkMcpAndListTool } from "./utils/utils.js"
+
+import { readConversation, writeConversation, summaryTitle, requestAI } from "./utils/utils.js"
 
 const app = express()
 app.use(cors())
 app.use(express.json())
+
+const mcpResult = await linkMcpAndListTool()
 
 const openai = new OpenAI({
   baseURL: process.env.OPENAI_BASE_URL,
@@ -34,6 +38,7 @@ app.post("/llm", async (req, res) => {
       convertId,
       queryObj,
       res,
+      mcpResult,
     })
   } catch (err) {
     console.error("[/llm] error:", err)

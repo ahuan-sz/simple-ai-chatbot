@@ -1,10 +1,13 @@
 export const toolHandleMap = {
-  help_dp: (params) => {
-    // function tool对应的方法里，最后一定要返回一个字符窜
-    return `去往${params.city}的票，订购成功`
-  },
-  help_dc: (params) => {
-    return `去往${params.city}的车，订购成功`
+  help_dc: (arg) => {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `去往${arg.city}的车，订购成功`
+        }
+      ]
+    }
   },
   // 前端卡片的方法，专门用来获取卡片的数据
   wm_card: () => {
@@ -14,8 +17,15 @@ export const toolHandleMap = {
       { name: "煲仔饭3", price: 20, id: "bz3" },
     ]
   },
-  buy_wm: (params) => {
-    return `用户选择了${params.id}的外卖，下单成功`
+  buy_wm: (arg) => {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `用户选择了${arg.id}的外卖，下单成功`
+        }
+      ]
+    }
   }
 }
 
