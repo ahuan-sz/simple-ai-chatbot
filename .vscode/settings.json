@@ -1,0 +1,7 @@
+{
+  "eslint.useFlatConfig": true,
+  "eslint.workingDirectories": ["client"],
+  "eslint.rules.customizations": [
+    { "rule": "vue/no-v-model-argument", "severity": "off" }
+  ]
+}

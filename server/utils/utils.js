@@ -107,8 +107,16 @@ export async function requestAI(opt) {
   let ragContext = ""
   let userMemo = ""
   if (typeof queryObj.content === 'string') {
-    ragContext = await createRAGContext(queryObj.content)
-    userMemo = await getUserMemoById(userId)
+    try {
+      ragContext = await createRAGContext(queryObj.content)
+    } catch (e) {
+      console.warn("[RAG] Embedding 不可用，降级跳过:", e.message)
+    }
+    try {
+      userMemo = await getUserMemoById(userId)
+    } catch (e) {
+      console.warn("[Memo] 用户记忆不可用，降级跳过:", e.message)
+    }
   }
 
   const llmres = await openai.chat.completions.create({
@@ -381,6 +389,7 @@ export async function getUserMemoById(id) {
   const memoJsonStr = fs.readFileSync("./dbdata/userMemo.json")
   const jsonObj = JSON.parse(memoJsonStr)
   const useMemo = jsonObj[id];
+  if (!useMemo) return ""
   //做一个自定义转化，转化为字符串在给ai大模型
   let str = "以下是用户的一些特点，请牢记，回答的时候根据用户特点进行回答\n";
   const {

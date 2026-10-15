@@ -4,7 +4,9 @@ import remarkGfm from 'remark-gfm';
 import highlightPlugins from 'rehype-highlight';
 
 const { content } = defineProps(["content"]);
+/** 从多模态内容数组中提取图片 URL，兼容 content 非数组的情况 */
 function findImage(content) {
+  if (!Array.isArray(content)) return ""
   let url = ""
   content.forEach((item) => {
     if (item.type === "image_url") {
@@ -13,7 +15,9 @@ function findImage(content) {
   })
   return url
 }
+/** 从多模态内容数组中提取纯文本，兼容 content 非数组的情况 */
 function findText(content) {
+  if (!Array.isArray(content)) return ""
   let text = ""
   content.forEach((item) => {
     if (item.type === "text") {
@@ -32,7 +36,7 @@ function findText(content) {
     }"
     :remark-plugins="[remarkGfm]"
     :rehype-plugins="[highlightPlugins]"
-    :markdown="typeof content === 'string' ? content : findText(content)"
+    :markdown="typeof content === 'string' ? content : (Array.isArray(content) ? findText(content) : '')"
     >
       <template #input="{ ...props }">
         <span v-if="props.type === 'checkbox' && props.checked">✅</span>

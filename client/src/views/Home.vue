@@ -1,146 +1,274 @@
 <script setup>
-import { ref, watch, onMounted } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-import MarkDown from '../components/MarkDown.vue';
-import { createConversation, getConversation, requestLLM, requestPicLLM,uploadImage } from '../api/index.js'
-import WmCard from '../components/WmCard.vue';
+import { ref, watch, onMounted, nextTick, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import MarkDown from '../components/MarkDown.vue'
+import { createConversation, getConversation, requestLLM, requestPicLLM, uploadImage } from '../api/index.js'
+import WmCard from '../components/WmCard.vue'
+import {
+  SendOutlined,
+  PictureOutlined,
+  UserOutlined,
+  RobotOutlined,
+  LoadingOutlined,
+  ClearOutlined,
+  ApiOutlined
+} from '@ant-design/icons-vue'
+import { h } from 'vue'
 
+const route = useRoute()
+const router = useRouter()
 
-const route = useRoute();
-const router = useRouter();
-
-const inputValue = ref('');
-const convertList = ref([]);
-const isThinking = ref(false);
-const picBase64 = ref('');
-// 从路由 query 读取 userId，缺省回退为 '123'（满足"默认加上 userId 为 123"的需求）
+const inputValue = ref('')
+const convertList = ref([])
+const isThinking = ref(false)
+const picBase64 = ref('')
 const userId = route.query.userId || '123'
+const chatContainerRef = ref(null)
 
 const modelType = ref('text')
-function changeModel(type) {
-  modelType.value = type
+
+const segmentedOptions = [
+  { label: '文本模式', value: 'text', icon: h(ApiOutlined) },
+  { label: '图片模式', value: 'pic', icon: h(PictureOutlined) }
+]
+
+const fileList = ref([])
+const uploading = ref(false)
+
+const avatarMap = {
+  user: { icon: h(UserOutlined), style: { backgroundColor: '#1677ff' } },
+  assistant: { icon: h(RobotOutlined), style: { backgroundColor: '#52c41a' } },
+  tool: { icon: h(RobotOutlined), style: { backgroundColor: '#faad14' } }
 }
 
+/** 过滤掉 SSE 流式推送中产生的空壳消息（content 为空且不是 tool 卡片） */
+const displayList = computed(() => {
+  return convertList.value.filter((item) => {
+    if (item.role === 'tool' && item.cardName) return true
+    if (item.content !== undefined && item.content !== null && item.content !== '') return true
+    return false
+  })
+})
+
+/** 发送消息给 LLM，支持文本/图片模式和混合内容 */
 function sendToLLM(word) {
-  const _convertList = [...convertList.value];
-  let _word = word
+  if (!word && !picBase64.value) return
+
+  const _convertList = [...convertList.value]
+  let _word = word || ''
+
   if (picBase64.value) {
     _word = [
-      {
-        type: "image_url",
-        image_url: picBase64.value
-      },
-      {
-        type: "text",
-        text: word
-      }
+      { type: 'image_url', image_url: picBase64.value },
+      { type: 'text', text: word || '' }
     ]
   }
-  _convertList.push({
-    role: 'user',
-    content: _word
-  });
-  convertList.value = _convertList;
-  isThinking.value = true;
 
-  if (modelType === 'text') {
+  _convertList.push({ role: 'user', content: _word })
+  convertList.value = _convertList
+  isThinking.value = true
+  inputValue.value = ''
+  picBase64.value = ''
+  fileList.value = []
+
+  if (modelType.value === 'text') {
     requestLLM(userId, route.query.convertId, _word, (event) => {
-      isThinking.value = false;
+      isThinking.value = false
       const assistantObj = JSON.parse(event.data)
-      console.log(assistantObj)
-      const _convertList = [...convertList.value]
-      const convertIndex = _convertList.findIndex((item) => {
-        return item.id === assistantObj.id && item.id && assistantObj.id
-      })
+      const _list = [...convertList.value]
+      const convertIndex = _list.findIndex(
+        (item) => item.id === assistantObj.id && item.id && assistantObj.id
+      )
 
       if (convertIndex !== -1) {
-        // 已存在则替换（每次 SSE 推送的是累积后的完整对象，替换即产生打字机效果）
-        _convertList[convertIndex] = assistantObj
+        _list[convertIndex] = assistantObj
       } else {
-        isThinking.value = false;
-        _convertList.push(assistantObj)
+        _list.push(assistantObj)
       }
-      // 关键：把副本写回 ref，触发 Vue 响应式更新，模板才会重渲染
-      convertList.value = _convertList
+      convertList.value = _list
+      scrollToBottom()
     })
   } else {
-    requestPicLLM(userId, route.query.convertId, _word).then(res => {
-      isThinking.value = false;
-      const _convertList = [...convertList.value];
-      _convertList.push(res.data)
-      convertList.value = _convertList;
-    })
+    requestPicLLM(userId, route.query.convertId, _word)
+      .then((res) => {
+        isThinking.value = false
+        const _list = [...convertList.value]
+        _list.push(res.data)
+        convertList.value = _list
+        scrollToBottom()
+      })
+      .catch(() => {
+        isThinking.value = false
+      })
   }
 }
 
+/** 获取指定会话的历史消息 */
 function getDetailById(convertId) {
-  getConversation(userId, convertId).then(res => {
-    convertList.value = res.data.data.list;
+  getConversation(userId, convertId).then((res) => {
+    convertList.value = res.data.data.list
+    scrollToBottom()
   })
 }
 
+/** 创建新会话并跳转 */
 function startNewConversation() {
-  createConversation(userId).then(res => {
-    // 跳转时把 userId 也带到 URL，保证刷新后仍可读取
+  createConversation(userId).then((res) => {
+    convertList.value = []
     router.push(`/?userId=${userId}&convertId=${res.data.data.convertId}`)
   })
 }
 
-function uploadFile(e) {
-  const file = e.target.files[0];
-  uploadImage(file).then(res => {
-    picBase64.value = res.data.data.imageBase64;
+/** 上传图片，接收已有的 uploadImage 接口返回 base64 */
+function uploadFile({ file, onSuccess, onError }) {
+  uploading.value = true
+  uploadImage(file)
+    .then((res) => {
+      picBase64.value = res.data.data.imageBase64
+      uploading.value = false
+      onSuccess?.()
+    })
+    .catch((err) => {
+      uploading.value = false
+      onError?.(err)
+    })
+}
+
+/** 滚动到底部显示最新消息 */
+function scrollToBottom() {
+  nextTick(() => {
+    if (chatContainerRef.value) {
+      chatContainerRef.value.scrollTop = chatContainerRef.value.scrollHeight
+    }
   })
 }
 
+/** 监听消息列表变化，自动跟随滚动（flush: 'post' 确保 DOM 更新完成后再滚动） */
+watch(
+  () => displayList.value.length + (displayList.value[displayList.value.length - 1]?.content || ''),
+  () => {
+    scrollToBottom()
+  },
+  { flush: 'post' }
+)
+
+/** 按下 Enter 发送，Shift+Enter 换行 */
+function handleEnter(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault()
+    sendToLLM(inputValue.value)
+  }
+}
+
 onMounted(() => {
-  const convertId = route.query.convertId;
-  if(convertId) {
-    getDetailById(convertId);
+  const convertId = route.query.convertId
+  if (convertId) {
+    getDetailById(convertId)
   } else {
     startNewConversation()
   }
 })
 
-watch(route, () => {
-  const convertId = route.query.convertId;
-  if(convertId) {
-    getDetailById(convertId);
+watch(
+  () => route.query.convertId,
+  (newId) => {
+    if (newId) {
+      getDetailById(newId)
+    }
   }
-})
+)
 </script>
 
 <template>
   <div class="chat-wrapper">
-    <div class="chat-content">
-      <div v-for="(chatItem, index) in convertList" :key="index" class="chat-item">
-        <div v-if="chatItem.content !==''" class="chat-item__wrap">
-          <div v-if="chatItem.role === 'user'" class="user-content">
+    <div ref="chatContainerRef" class="chat-content">
+      <div
+        v-for="(chatItem, index) in displayList"
+        :key="chatItem.id || index"
+        class="chat-item"
+        :class="{ 'chat-item--user': chatItem.role === 'user' }"
+      >
+        <a-avatar
+          class="chat-avatar"
+          :style="avatarMap[chatItem.role]?.style || avatarMap.assistant.style"
+        >
+          <component :is="(avatarMap[chatItem.role]?.icon) || avatarMap.assistant.icon" />
+        </a-avatar>
+
+        <div class="chat-bubble" :class="`chat-bubble--${chatItem.role}`">
+          <div v-if="chatItem.role === 'tool' && chatItem.cardName === 'wm_card'" class="chat-card-wrap">
+            <WmCard
+              :kind="chatItem.arguments?.kind"
+              :cardData="chatItem.arguments?.data"
+              @cardConfirm="sendToLLM"
+            />
+          </div>
+          <template v-else-if="chatItem.content">
             <MarkDown :content="chatItem.content" />
-          </div>
-          <div v-if="chatItem.role === 'assistant'" class="assistant-content">
-            <MarkDown :content="chatItem.content" />
-          </div>
-          <div v-if="chatItem.role === 'tool' && chatItem.cardName" class="assistant-content">
-            <WmCard v-if="chatItem.cardName === 'wm_card'" :kind="chatItem.arguments.kind" :cardData="chatItem.arguments.data" @cardConfirm="sendToLLM" />
-          </div>
+          </template>
         </div>
       </div>
+
       <div v-if="isThinking" class="chat-item">
-        <div class="chat-item__wrap">
-          <div class="assistant-content">思考中...</div>
-        </div>
+        <a-avatar class="chat-avatar" :style="{ backgroundColor: '#faad14' }">
+          <LoadingOutlined />
+        </a-avatar>
+        <a-skeleton active :paragraph="{ rows: 2 }" class="thinking-skeleton" />
       </div>
     </div>
-    <div class="input-content">
-      <input type="text" v-model="inputValue" />
-      <button type="submit" @click="sendToLLM(inputValue)">发送</button>
-      <button @click="startNewConversation()">新建会话</button>
-      <input class="upload-btn" type="file" @change="uploadFile" />
-    </div>
-    <div>
-      <button @click="changeModel('text')">文本模式</button>
-      <button @click="changeModel('pic')">图片模式</button>
+
+    <div class="input-area">
+      <div class="input-toolbar">
+        <div class="toolbar-left">
+          <a-segmented
+            v-model:value="modelType"
+            :options="segmentedOptions"
+            size="small"
+          />
+        </div>
+        <div class="toolbar-right">
+          <a-tooltip title="清空当前输入">
+            <a-button
+              size="small"
+              :icon="h(ClearOutlined)"
+              @click="inputValue = ''; picBase64 = ''; fileList = []"
+            />
+          </a-tooltip>
+        </div>
+      </div>
+
+      <div class="input-row">
+        <a-upload
+          accept="image/*"
+          :show-upload-list="true"
+          :custom-request="uploadFile"
+          :file-list="fileList"
+          :before-upload="() => true"
+          class="upload-btn"
+        >
+          <a-tooltip title="上传图片">
+            <a-button :icon="h(PictureOutlined)" :loading="uploading" />
+          </a-tooltip>
+        </a-upload>
+
+        <a-textarea
+          v-model:value="inputValue"
+          placeholder="输入消息，Enter 发送，Shift+Enter 换行..."
+          :auto-size="{ minRows: 1, maxRows: 5 }"
+          @keydown="handleEnter"
+          class="chat-textarea"
+        />
+
+        <a-button
+          type="primary"
+          shape="circle"
+          size="large"
+          :icon="h(SendOutlined)"
+          :disabled="!inputValue && !picBase64"
+          @click="sendToLLM(inputValue)"
+          class="send-btn"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -148,49 +276,120 @@ watch(route, () => {
 <style scoped>
 .chat-wrapper {
   width: 100%;
-  height: 100vh;
+  height: calc(100vh - 56px);
   display: flex;
   flex-direction: column;
+  background: #f5f7fa;
 }
+
 .chat-content {
   flex: 1;
-  overflow: auto;
-}
-.input-content {
+  overflow-y: auto;
+  padding: 24px 32px;
   display: flex;
-  padding: 10px;
+  flex-direction: column;
+  gap: 20px;
 }
-.input-content button {
-  margin-left: 10px;
-}
-.input-content input {
-  flex: 1;
-}
+
 .chat-item {
-  width: 100%;
-  box-sizing: border-box;
-}
-.chat-item__wrap {
   display: flex;
-  margin-bottom: 20px;
-  padding: 10px;
+  gap: 12px;
+  align-items: flex-start;
+  max-width: 85%;
 }
-.user-content {
-  border-radius: 12px;
-  padding: 0 8px;
-  color: #fff;
-  background-color: rgb(29, 120, 188);
+
+.chat-item--user {
   margin-left: auto;
-  text-align: left;
+  flex-direction: row-reverse;
 }
-.assistant-content {
+
+.chat-avatar {
+  flex-shrink: 0;
+}
+
+.chat-bubble {
+  padding: 12px 16px;
   border-radius: 12px;
-  padding: 0 8px;
-  border: 1px solid grey;
-  margin-right: auto;
+  line-height: 1.6;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  font-size: 14px;
+  position: relative;
+  word-break: break-word;
   text-align: left;
 }
+
+.chat-bubble--user {
+  background: #1677ff;
+  color: #fff;
+  border-top-right-radius: 4px;
+}
+
+.chat-bubble--user :deep(p) {
+  color: #fff;
+}
+
+.chat-bubble--assistant,
+.chat-bubble--tool {
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-top-left-radius: 4px;
+}
+
+.chat-card-wrap {
+  width: 100%;
+}
+
+.thinking-skeleton {
+  flex: 1;
+  max-width: 70%;
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.input-area {
+  padding: 12px 24px 20px;
+  background: #fff;
+  border-top: 1px solid #e8e8e8;
+}
+
+.input-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
 .upload-btn {
-  margin-left: 10px;
+  flex-shrink: 0;
+}
+
+.chat-textarea {
+  flex: 1;
+  resize: none;
+}
+
+.send-btn {
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .chat-content {
+    padding: 16px;
+  }
+
+  .chat-item {
+    max-width: 95%;
+  }
+
+  .input-area {
+    padding: 10px 12px 16px;
+  }
 }
 </style>
