@@ -4,26 +4,48 @@ import remarkGfm from 'remark-gfm';
 import highlightPlugins from 'rehype-highlight';
 
 const { content } = defineProps(["content"]);
+function findImage(content) {
+  let url = ""
+  content.forEach((item) => {
+    if (item.type === "image_url") {
+      url = item.image_url
+    }
+  })
+  return url
+}
+function findText(content) {
+  let text = ""
+  content.forEach((item) => {
+    if (item.type === "text") {
+      text = item.text
+    }
+  })
+  return text
+}
 </script>
 
 <template>
-  <VueMarkdown :custom-attrs="{
-    a: { class: 'markdown-a' }
-  }"
-  :remark-plugins="[remarkGfm]"
-  :rehype-plugins="[highlightPlugins]"
-  :markdown="content"
-  >
-    <template #input="{ ...props }">
-      <span v-if="props.type === 'checkbox' && props.checked">✅</span>
-      <span v-if="props.type === 'checkbox' && !props.checked">[ ]</span>
-    </template>
-    <template #li="{ children }">
-      <div class="my-li">
-        <Component :is="children" />
-      </div>
-    </template>
-  </VueMarkdown>
+  <div>
+    <VueMarkdown :custom-attrs="{
+      a: { class: 'markdown-a' },
+      img: { class: 'markdown-img' }
+    }"
+    :remark-plugins="[remarkGfm]"
+    :rehype-plugins="[highlightPlugins]"
+    :markdown="typeof content === 'string' ? content : findText(content)"
+    >
+      <template #input="{ ...props }">
+        <span v-if="props.type === 'checkbox' && props.checked">✅</span>
+        <span v-if="props.type === 'checkbox' && !props.checked">[ ]</span>
+      </template>
+      <template #li="{ children }">
+        <div class="my-li">
+          <Component :is="children" />
+        </div>
+      </template>
+    </VueMarkdown>
+    <img class="image" v-if="content instanceof Array" :src="findImage(content)" alt="图片" />
+  </div>
 </template>
 
 <style scoped>
@@ -109,6 +131,9 @@ const { content } = defineProps(["content"]);
   font-family: 'SF Mono', Monaco, Menlo, Consolas, monospace;
   font-size: 13px;
   line-height: 1.6;
+}
+.image {
+  width: 100%
 }
 </style>
 

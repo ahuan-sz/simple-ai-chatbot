@@ -1,14 +1,16 @@
 import express from "express"
 import { OpenAI } from "openai"
 import cors from "cors"
-import "dotenv/config"
-import { linkMcpAndListTool } from "./utils/utils.js"
+import multer from "multer"
 
-import { readConversation, writeConversation, summaryTitle, requestAI } from "./utils/utils.js"
+import "dotenv/config"
+import { linkMcpAndListTool, readConversation, writeConversation, summaryTitle, requestAI, requestPicAI } from "./utils/utils.js"
+
+const upload = multer({ storage: multer.memoryStorage() })
 
 const app = express()
 app.use(cors())
-app.use(express.json())
+app.use(express.json({ limit: '10mb' }))
 
 const mcpResult = await linkMcpAndListTool()
 
@@ -16,6 +18,12 @@ const openai = new OpenAI({
   baseURL: process.env.OPENAI_BASE_URL,
   apiKey: process.env.OPENAI_API_KEY,
 })
+
+const openaiPic = new OpenAI({
+  baseURL: process.env.DASHSCOPE_BASE_URL,
+  apiKey: process.env.OPENAI_API_KEY,
+})
+
 
 app.post("/llm", async (req, res) => {
   // 流式响应头先发出，状态码固定为 200
@@ -50,15 +58,24 @@ app.post("/llm", async (req, res) => {
   }
 })
 
+app.post("/picllm", async (req, res) => {
+  // 生图不走流式
+  const { content, userId, convertId } = req.body
+  const queryObj = {
+    role: "user",
+    content: content
+  }
+  await requestPicAI({
+    openai: openaiPic,
+    userId,
+    convertId,
+    queryObj,
+    res,
+  })
+})
+
 app.get("/conversation/create", (req, res) => {
   const userId = req.query.userId
-  if (!userId) {
-    res.json({
-      success: false,
-      message: "userId不能为空"
-    })
-    return
-  }
   const conversationObj = readConversation()
   if (!conversationObj[userId]) {
     conversationObj[userId] = {}
@@ -134,6 +151,30 @@ app.get("/conversation/list", async (req, res) => {
     success: true,
     data: returnList,
     message: "查询成功"
+  })
+})
+
+app.post("/upload", upload.single('image'), (req, res) => {
+  // 获取上传的文件
+  const file = req.file;
+  if(!file) {
+    return res.status(400).json({
+      error: "请上传图片文件"
+    });
+  }
+
+  // 将图片文件转换为 base64 编码
+  const base64 = file.buffer.toString('base64');
+  const mimeType = file.mimetype
+  const base64String = `data:${mimeType};base64,${base64}`
+  res.json({
+    success: true,
+    message: "文件上传成功",
+    data: {
+      imageBase64: base64String,
+      originalName: file.originalname,
+      fileSize: file.size
+    }
   })
 })
 

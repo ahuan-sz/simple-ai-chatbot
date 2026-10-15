@@ -292,3 +292,7 @@ code {
     border-right-color: var(--border);
   }
 }
+
+.markdown-img {
+  width: 100%;
+}

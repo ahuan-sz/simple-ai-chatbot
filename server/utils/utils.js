@@ -1,25 +1,47 @@
 import fs from "fs"
 import path from "path"
-import { fileURLToPath } from "url"
-import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters"
-import { Client } from '@modelcontextprotocol/sdk/client/index.js'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { mcpList } from "../config.js"
+import {
+  fileURLToPath
+} from "url"
+import {
+  RecursiveCharacterTextSplitter
+} from "@langchain/textsplitters"
+import {
+  Client
+} from '@modelcontextprotocol/sdk/client/index.js'
+import {
+  StreamableHTTPClientTransport
+} from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import {
+  SSEClientTransport
+} from '@modelcontextprotocol/sdk/client/sse.js'
+import {
+  StdioClientTransport
+} from '@modelcontextprotocol/sdk/client/stdio.js'
+import {
+  mcpList
+} from "../config.js"
 
 // ESM 下 __dirname 不再自动注入,需手动构造
-const __filename = fileURLToPath(import.meta.url)
+const __filename = fileURLToPath(
+  import.meta.url)
 const __dirname = path.dirname(__filename)
 
 const systemContext = fs.readFileSync(path.resolve(__dirname, "../context/context2.md"), "utf-8")
 const systemString = systemContext.toString()
-import { toolHandleMap, toolList, frontList } from "./tools.js";
-import { textSearch } from "../vector/index.js";
+import {
+  toolHandleMap,
+  toolList,
+  frontList
+} from "./tools.js";
+import {
+  textSearch
+} from "../vector/index.js";
 
 export async function summaryMessage(openai, messageList) {
   const llmres = await openai.chat.completions.create({
     model: process.env.OPENAI_MODEL,
-    messages: [
-      {
+    messages: [{
         role: "system",
         content: "帮我总结下面的对话记录，做一个摘要"
       },
@@ -32,8 +54,7 @@ export async function summaryMessage(openai, messageList) {
 export async function summaryTitle(openai, messageList) {
   const llmres = await openai.chat.completions.create({
     model: process.env.OPENAI_MODEL,
-    messages: [
-      {
+    messages: [{
         role: "system",
         content: "帮我总结下面的对话记录，生成一个小于16个字符的标题，一定要注意文字长度限制，不能超过16个字符"
       },
@@ -61,7 +82,14 @@ export function writeConversation(obj) {
 }
 
 export async function requestAI(opt) {
-  const { openai, queryObj, userId, convertId, res, mcpResult } = opt
+  const {
+    openai,
+    queryObj,
+    userId,
+    convertId,
+    res,
+    mcpResult
+  } = opt
   const conversationObj = readConversation()
   const singleConvertList = conversationObj[userId][convertId].list
   if (singleConvertList.length > 10) {
@@ -76,12 +104,16 @@ export async function requestAI(opt) {
   }
   // 每次回答，存到singleConvertList，保存上下文
   singleConvertList.push(queryObj)
-  const ragContext = await createRAGContext(queryObj.content)
-  const userMemo = await getUserMemoById(userId)
+  let ragContext = ""
+  let userMemo = ""
+  if (typeof queryObj.content === 'string') {
+    ragContext = await createRAGContext(queryObj.content)
+    userMemo = await getUserMemoById(userId)
+  }
+
   const llmres = await openai.chat.completions.create({
     model: process.env.OPENAI_MODEL,
-    messages: [
-      {
+    messages: [{
         role: "system",
         content: systemString
       },
@@ -132,7 +164,10 @@ export async function requestAI(opt) {
           resObj.tool_calls[toolIndex] = {
             id: '',
             type: 'function',
-            function: { name: '', arguments: '' }
+            function: {
+              name: '',
+              arguments: ''
+            }
           }
         }
         const targetTool = resObj.tool_calls[toolIndex]
@@ -212,7 +247,7 @@ export async function requestAI(opt) {
           result = await toolHandleMap[name](toolarguments)
         }
         // 兜底:确保 content 始终是字符串,避免下游 LLM 报 "Field required: input.contents"
-        toolQueryObj.content = JSON.stringify(result.content ?? "")
+        toolQueryObj.content = JSON.stringify(result.content || "")
         await requestAI({
           openai,
           queryObj: toolQueryObj,
@@ -224,9 +259,80 @@ export async function requestAI(opt) {
       }
     }
   } else {
-    res.write(`data: ${JSON.stringify({ done: true })} \n\n`) 
+    res.write(`data: ${JSON.stringify({ done: true })} \n\n`)
     res.end()
   }
+}
+
+export function findImage(content) {
+  let url = ""
+  content.forEach((item) => {
+    if (item.type === "image_url") {
+      url = item.image_url
+    }
+  })
+  return url
+}
+export function findText(content) {
+  let text = ""
+  content.forEach((item) => {
+    if (item.type === "text") {
+      text = item.text
+    }
+  })
+  return text
+}
+
+export async function requestPicAI(opt) {
+  const {
+    openai,
+    userId,
+    convertId,
+    queryObj,
+    res
+  } = opt
+  const conversationObj = readConversation()
+  const singleConvertList = conversationObj[userId][convertId].list
+  singleConvertList.push(queryObj)
+  const { content } = queryObj
+  let messageObj = {}
+  if (typeof content === 'string') {
+    messageObj = {
+      role: 'user',
+      content: [{ text: content }],
+    }
+  } else {
+    // 图片生图
+    messageObj = {
+      role: 'user',
+      content: [
+        {
+          image: findImage(content)
+        },
+        {
+          "text": findText(content)
+        }
+      ]
+    }
+  }
+  const llmres = await openai.request({
+    method: "post",
+    path: "/services/aigc/multimodal-generation/generation",
+    body: {
+      model: process.env.OPENAI_PIC_MODEL,
+      input: {
+        messages: [messageObj],
+      },
+    },
+  })
+  const resultMessage = llmres.output.choices[0].message
+  const finalMessage = {
+    ...resultMessage,
+    content: `![图片](${resultMessage.content[0].image})` // 转为markdown格式，返回给其阿奴单直接插件渲染
+  }
+  singleConvertList.push(finalMessage)
+  writeConversation(conversationObj)
+  res.json(finalMessage)
 }
 
 export function readFileToText(filePath) {
@@ -266,46 +372,50 @@ export async function createRAGContext(qtext) {
   const searchText = searchArr.map((item) => {
     return item.metadata.text
   }).join('\n')
-  let ragString =  ragContext.toString()
+  let ragString = ragContext.toString()
   ragString = ragString.replace('${text}', searchText)
   return ragString
 }
 
 export async function getUserMemoById(id) {
-    const memoJsonStr = fs.readFileSync("./dbdata/userMemo.json")
-    const jsonObj = JSON.parse(memoJsonStr)
-    const useMemo = jsonObj[id];
-    //做一个自定义转化，转化为字符串在给ai大模型
-    let str = "以下是用户的一些特点，请牢记，回答的时候根据用户特点进行回答\n";
-    const { sf, like, status } = useMemo
-    if (sf) {
-        //身份相关的特点写死逻辑，拼到str
-        if (sf.career) {
-            str += "我的职业是" + sf.career + "\n"
-        }
-        if (sf.location) {
-            str += "我的居住地是" + sf.location + "\n"
-        }
+  const memoJsonStr = fs.readFileSync("./dbdata/userMemo.json")
+  const jsonObj = JSON.parse(memoJsonStr)
+  const useMemo = jsonObj[id];
+  //做一个自定义转化，转化为字符串在给ai大模型
+  let str = "以下是用户的一些特点，请牢记，回答的时候根据用户特点进行回答\n";
+  const {
+    sf,
+    like,
+    status
+  } = useMemo
+  if (sf) {
+    //身份相关的特点写死逻辑，拼到str
+    if (sf.career) {
+      str += "我的职业是" + sf.career + "\n"
     }
-    if (like) {
-        //身份相关的特点写死逻辑，拼到str
-        if (like.career) {
-            str += "我喜欢的食物有" + like.food.join(",") + "\n"
-        }
-        if (like.sport) {
-            str += "我喜欢的运动是" + like.sport.join(",") + "\n"
-        }
+    if (sf.location) {
+      str += "我的居住地是" + sf.location + "\n"
     }
-    if (status) {
-        //身份相关的特点写死逻辑，拼到str
-        if (status.feel) {
-            str += "我的感情状态：" + status.feel + "\n"
-        }
-        if (status.body) {
-            str += "我的身体状态" + status.body + "\n"
-        }
+  }
+  if (like) {
+    //身份相关的特点写死逻辑，拼到str
+    if (like.career) {
+      str += "我喜欢的食物有" + like.food.join(",") + "\n"
     }
-    return str;
+    if (like.sport) {
+      str += "我喜欢的运动是" + like.sport.join(",") + "\n"
+    }
+  }
+  if (status) {
+    //身份相关的特点写死逻辑，拼到str
+    if (status.feel) {
+      str += "我的感情状态：" + status.feel + "\n"
+    }
+    if (status.body) {
+      str += "我的身体状态" + status.body + "\n"
+    }
+  }
+  return str;
 }
 
 export async function linkMcpAndListTool() {
@@ -314,11 +424,33 @@ export async function linkMcpAndListTool() {
   const toolList = []
   for (let i = 0; i < mcpList.length; i++) {
     const mcpServer = mcpList[i]
+    const {
+      type,
+      headers = {},
+      commandArg = {}
+    } = mcpServer
     const client = new Client({
       name: "mcp" + i,
       version: "1.0.0"
     })
-    const transport = new StreamableHTTPClientTransport(mcpServer.url)
+
+    let transport = null
+    if (type === "stdio") {
+      transport = new StdioClientTransport(commandArg)
+    } else if (type === "sse") {
+      transport = new SSEClientTransport(mcpServer.url, {
+        requestInit: {
+          headers,
+        }
+      })
+    } else {
+      transport = new StreamableHTTPClientTransport(mcpServer.url, {
+        requestInit: {
+          headers,
+        }
+      })
+    }
+
     await client.connect(transport)
     // 1. 用服务名字储存client
     clientMap[mcpServer.name] = {
@@ -355,4 +487,3 @@ export function transformToOpenAi(result) {
   })
   return openTools
 }
-

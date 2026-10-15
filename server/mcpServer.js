@@ -1,7 +1,7 @@
 import express from 'express'
 import cors from 'cors'
 import fs from 'fs'
-import z, { output } from 'zod'
+import z from 'zod'
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
@@ -10,7 +10,10 @@ const app = express()
 const PORT = 3001
 
 app.use(cors())
-app.use(express.json())
+app.use((req, res, next) => {
+  if (req.url.startsWith('/mcp')) next()
+  else express.json({ limit: '10mb' })(req, res, next)
+})
 
 // stateless 模式:每请求新建 transport,避免单例 transport 在并发 SSE 响应时冲突
 app.post("/mcp", async (req, res) => {
@@ -100,7 +103,7 @@ app.post("/mcp", async (req, res) => {
   // 接下来就可以基于server对象，设置function tool之类的上下文
   const transport = new StreamableHTTPServerTransport()
   await server.connect(transport)
-  await transport.handleRequest(req, res, req.body)
+  await transport.handleRequest(req, res)
 })
 
 app.listen(PORT, () => {

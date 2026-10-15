@@ -19,6 +19,14 @@ export function requestLLM(userId, convertId, keyword, callback) {
   })
 }
 
+export function requestPicLLM(userId, convertId, content) {
+  return axios.post('http://localhost:3000/picllm', {
+    userId,
+    convertId,
+    content
+  })
+}
+
 export function createConversation(userId) {
   return axios.get(`http://localhost:3000/conversation/create?userId=${userId}`)
 }
@@ -33,4 +41,14 @@ export function listConversation(userId) {
 
 export function deleteConversation(userId, convertId) {
   return axios.get(`http://localhost:3000/conversation/delete?userId=${userId}&convertId=${convertId}`)
+}
+
+export function uploadImage(file) {
+  const formData = new FormData();
+  formData.append('image', file);
+  return axios.post('http://localhost:3000/upload', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data'
+    }
+  })
 }
